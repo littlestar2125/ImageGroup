@@ -1,5 +1,4 @@
 import com.drew.imaging.ImageMetadataReader;
-import com.drew.imaging.ImageProcessingException;
 import com.drew.metadata.Directory;
 import com.drew.metadata.Tag;
 import com.drew.metadata.exif.ExifIFD0Directory;
@@ -7,7 +6,6 @@ import com.drew.metadata.exif.ExifSubIFDDirectory;
 import com.drew.metadata.exif.GpsDirectory;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -29,6 +27,7 @@ public class FileInfoBuilder {
         FileInfo fileInfo = new FileInfo();
         File file = path.toFile();
         fileInfo.setFileName(file.getName());
+        fileInfo.setTargetFileName(file.getName());
         fileInfo.setFilePath(file.getPath());
         fileInfo.setFileSuffix(file.getName().substring(file.getName().lastIndexOf(".") + 1));
         fileInfo.setFileNameTime(Util.localDateTimeByName(file.getName()));
@@ -46,12 +45,11 @@ public class FileInfoBuilder {
                     {
                         List<Tag> tags = v.getTags().stream().toList();
                         if (v instanceof ExifIFD0Directory) {
-                            tags.stream().filter(x -> x.getTagName().contains("Date/Time")).findFirst().ifPresent(x -> {
-                                fileInfo.setShotTime(LocalDateTime.parse(x.getDescription(), dateTimeFormatter));
-                            });
+                            tags.stream().filter(x -> x.getTagName().contains("Date/Time"))
+                                    .findFirst().ifPresent(x ->
+                                            fileInfo.setShotTime(LocalDateTime.parse(x.getDescription(), dateTimeFormatter)));
                         } else if (v instanceof ExifSubIFDDirectory) {
-                            for (int i = 0; i < tags.size(); i++) {
-                                Tag tag = tags.get(i);
+                            for (Tag tag : tags) {
                                 if (tag.getTagName().contains("Date/Time Original")) {
                                     fileInfo.setOriginalTime(LocalDateTime.parse(tag.getDescription(), dateTimeFormatter));
                                 } else if (tag.getTagName().contains("Date/Time Digitized")) {
@@ -63,39 +61,33 @@ public class FileInfoBuilder {
                             String timeStamp = null;
                             String latitude = null;
                             String longitude = null;
-                            for (int i = 0; i < tags.size(); i++) {
-                                Tag tag = tags.get(i);
+                            for (Tag tag : tags) {
                                 if (tag.getTagName().contains("Date Stamp")) {
                                     dateStamp = tag.getDescription();
                                 } else if (tag.getTagName().contains("Time-Stamp")) {
                                     timeStamp = tag.getDescription();
-                                } else if (tag.getTagName().contains("GPS Latitude Ref")) {
-                                } else if (tag.getTagName().contains("GPS Latitude")) {
-                                    latitude=Util.dmt2D(tag.getDescription());
+                                } else if (tag.getTagName().contains("GPS Latitude") && !tag.getTagName().contains("Ref")) {
+                                    latitude = Util.dmt2D(tag.getDescription());
                                     fileInfo.setGpsLatitude(latitude);
-                                } else if (tag.getTagName().contains("GPS Longitude Ref")) {
-                                } else if (tag.getTagName().contains("GPS Longitude")) {
-                                    longitude=Util.dmt2D(tag.getDescription());
+                                } else if (tag.getTagName().contains("GPS Longitude") && !tag.getTagName().contains("Ref")) {
+                                    longitude = Util.dmt2D(tag.getDescription());
                                     fileInfo.setGpsLongitude(longitude);
                                 }
                             }
                             if (dateStamp != null && timeStamp != null) {
                                 fileInfo.setGpsTime(LocalDateTime.parse(dateStamp + " " + timeStamp, DateTimeFormatter.ofPattern("yyyy:MM:dd H:mm:s z")));
                             }
-                            if(latitude!=null&&longitude!=null){
-                                String gps=longitude+","+latitude;
+                            if (latitude != null && longitude != null) {
+                                String gps = longitude + "," + latitude;
                                 fileInfo.setAddress(Util.gps2Address(gps));
                             }
                         }
                     }
             );
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (ImageProcessingException e) {
-            e.printStackTrace();
+            fileInfo.setTargetPath(Util.getEarliestTime(Util.getDateTimeListByFile(fileInfo)));
+        } catch (Exception e) {
+            // TODO 记录错误信息等待后续处理
         }
-
-
         return fileInfo;
     }
 

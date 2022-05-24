@@ -24,14 +24,12 @@ import java.util.UUID;
 public class Test {
     public static void main(String[] args) {
 //        testMd5();
-        testMain();
+//        testMain();
+        long start=System.currentTimeMillis();
         FileInfo info=new FileInfoBuilder().
                 buildByPath(Path.of("E:\\李智\\魅族恢复相册\\亲爱的你\\-1a44cf2203cc6893.jpg"));
         System.out.println(info);
-        if(info.getGpsLatitude()!=null&&info.getGpsLongitude()!=null){
-            String gps=info.getGpsLongitude()+","+info.getGpsLatitude();
-            System.out.println(Util.gps2Address(gps));
-        }
+        System.out.println(System.currentTimeMillis()-start);
 
     }
 

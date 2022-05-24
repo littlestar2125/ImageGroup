@@ -5,7 +5,9 @@ import org.apache.commons.httpclient.HttpClient;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.commons.httpclient.params.HttpMethodParams;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -24,9 +26,9 @@ import java.util.regex.Pattern;
  * @date: 2022/5/21 0:36
  */
 public class Util {
-    private static String BASE_URL = "https://restapi.amap.com/v3/geocode/regeo?key=24998c8857c1004e7e35fcedde31c1a2&location=";
+    private static final String BASE_URL = "https://restapi.amap.com/v3/geocode/regeo?key=24998c8857c1004e7e35fcedde31c1a2&location=";
 
-    public static Map<String,String> mapKey=new HashMap<>();
+    public static Map<String, String> mapKey = new HashMap<>();
 
     public static List<String> ruleList = new ArrayList<>() {
         {
@@ -116,7 +118,9 @@ public class Util {
         if (file.getShotTime() != null) {
             localDateTimes.add(file.getShotTime());
         }
-        if (file.getGpsTime() != null) {
+        if (file.getFileNameTime() == null &&
+                file.getShotTime() == null &&
+                file.getGpsTime() != null) {
             localDateTimes.add(file.getGpsTime());
         }
         return localDateTimes;
@@ -154,7 +158,10 @@ public class Util {
         return null;
     }
 
-    public static String gps2Address(String gps){
+    public static String gps2Address(String gps) {
+        if (mapKey.containsKey(gps)) {
+            return mapKey.get(gps);
+        }
         // 创建httpClient实例对象
         HttpClient httpClient = new HttpClient();
         // 设置httpClient连接主机服务器超时时间：15000毫秒
@@ -166,14 +173,17 @@ public class Util {
         getMethod.addRequestHeader("Content-Type", "application/json;charset=UTF-8");
         try {
             httpClient.executeMethod(getMethod);
-            JSONObject jsonObject = JSON.parseObject( getMethod.getResponseBodyAsString());
+            JSONObject jsonObject = JSON.parseObject(getMethod.getResponseBodyAsString());
             if ("1".equals(jsonObject.get("status"))) {
                 JSONObject resultObject = jsonObject.getJSONObject("regeocode");
-                return resultObject.getString("formatted_address");
+                String address = resultObject.getString("formatted_address");
+                mapKey.putIfAbsent(gps, address);
+                return address;
             }
-        }catch (Exception e) {
-
-        }finally {
+        } catch (Exception e) {
+            // TODO 记录错误信息等待后续处理
+            throw new RuntimeException(e);
+        } finally {
             getMethod.releaseConnection();
         }
         return null;
