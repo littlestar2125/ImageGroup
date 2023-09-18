@@ -1,9 +1,14 @@
+import com.ig.util.RedisUtil;
+import com.ig.util.Util;
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.Directory;
 import com.drew.metadata.Tag;
 import com.drew.metadata.exif.ExifIFD0Directory;
 import com.drew.metadata.exif.GpsDirectory;
+import com.ig.config.Config;
+import redis.clients.jedis.Jedis;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -13,9 +18,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * @author: zhili
@@ -25,11 +28,16 @@ public class Test {
     public static void main(String[] args) {
 //        testMd5();
 //        testMain();
-        long start=System.currentTimeMillis();
-        FileInfo info=new FileInfoBuilder().
-                buildByPath(Path.of("E:\\李智\\魅族恢复相册\\亲爱的你\\-1a44cf2203cc6893.jpg"));
-        System.out.println(info);
-        System.out.println(System.currentTimeMillis()-start);
+        long start = System.currentTimeMillis();
+//        Do.FileInfo info = new Do.FileInfoBuilder().
+//                buildByPath(Path.of("E:\\李智\\魅族恢复相册\\亲爱的你\\-1a44cf2203cc6893.jpg"));
+//        System.out.println(info);
+//
+//        testConfig();
+//        testJedis();
+//        getFileTypeCount();
+        testBrPop();
+        System.out.println(System.currentTimeMillis() - start);
 
     }
 
@@ -79,9 +87,9 @@ public class Test {
                                 } else if (tag.getTagName().contains("Latitude")) {
                                     System.out.println(tag.getDescription());
                                     System.out.println(Util.dmt2D(tag.getDescription()));
-                                }else if(tag.getTagName().contains("Longitude Ref")) {
+                                } else if (tag.getTagName().contains("Longitude Ref")) {
                                     System.out.println(tag.getDescription());
-                                }else if(tag.getTagName().contains("Longitude")) {
+                                } else if (tag.getTagName().contains("Longitude")) {
                                     System.out.println(tag.getDescription());
                                     System.out.println(Util.dmt2D(tag.getDescription()));
                                 }
@@ -184,6 +192,78 @@ public class Test {
         } catch (Exception e) {
             e.printStackTrace();
         }
-//        System.out.println(Util.md5(str));
+//        System.out.println(Util.Util.md5(str));
+    }
+
+    public static void testConfig() {
+        System.out.println(Config.getProperties("redis.host"));
+        System.out.println(Config.getProperties("redis.test_on_borrow"));
+        System.out.println(Config.getProperties("redis.test_on_borrow").getClass());
+    }
+
+    public static void testJedis() {
+        Jedis jedis = RedisUtil.getJedis();
+        jedis.set("测试", "21231");
+        System.out.println(jedis.get("测试"));
+        jedis.del("测试");
+        System.out.println(jedis.get("测试"));
+        RedisUtil.returnResource(jedis);
+    }
+
+
+    public static void getFileTypeCount() {
+        File dir = new File("E:\\MY\\李智\\魅族恢复相册\\我们都要好好的");
+        HashMap<String, Integer> map = new HashMap<>();
+        map = sum(dir, map);
+        bianli(map);
+    }
+
+    private static void bianli(HashMap<String, Integer> map) {
+        Set<String> set = map.keySet();
+        for (String s : set) {
+            System.out.println(s + "类型有" + map.get(s));
+        }
+    }
+
+    private static HashMap<String, Integer> sum(File dir, HashMap<String, Integer> map) {
+        File[] files = dir.listFiles();
+        Set<String> set = map.keySet();
+        for (File f : files) {
+            if (f.isDirectory()) {
+                sum(f, map);
+            } else {
+                System.out.println(f);
+                String key = f.getName().substring(f.getName().indexOf(".") + 1);
+                if (set.contains(key)) {
+                    map.put(key, map.get(key) + 1);
+                } else {
+                    map.put(key, 1);
+                }
+            }
+        }
+        return map;
+    }
+
+    private static void testBrPop() {
+        Jedis jedis;
+        long getClientTime = System.currentTimeMillis();
+        int key = 0;
+        do {
+            jedis = RedisUtil.getJedis();
+            ++key;
+        } while (jedis == null);
+        System.out.println("get client try:"+key+",used time:" + (System.currentTimeMillis() - getClientTime));
+
+        long startTime = System.currentTimeMillis();
+        List<String> res = jedis.brpop(10, Config.getProperties("stream.key"));
+        long endTime = System.currentTimeMillis();
+        System.out.println("first time get key:" + res + ",used time:" + (endTime - startTime));
+//
+//        long startTime1 = System.currentTimeMillis();
+//        List<String> res1 = jedis.brpop(10, Config.getProperties("stream.key"));
+//        long endTime1 = System.currentTimeMillis();
+//        System.out.println("second time get key:" + res + ",used time:" + (endTime1 - startTime1));
+
+        RedisUtil.returnResource(jedis);
     }
 }

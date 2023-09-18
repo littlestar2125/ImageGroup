@@ -1,23 +1,25 @@
+package com.ig.util;
+
+import com.ig.domain.FileInfo;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.ig.config.Config;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.httpclient.HttpClient;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.commons.httpclient.params.HttpMethodParams;
+import redis.clients.jedis.Jedis;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,11 +28,14 @@ import java.util.regex.Pattern;
  * @date: 2022/5/21 0:36
  */
 public class Util {
-    private static final String BASE_URL = "https://restapi.amap.com/v3/geocode/regeo?key=24998c8857c1004e7e35fcedde31c1a2&location=";
+    //统一的上传地址
+    public static final String targetPath = "\\\\localhost@8001\\DavWWWRoot\\images\\";
 
-    public static Map<String, String> mapKey = new HashMap<>();
+    //高德API调用地址
+    private static final String BASE_URL = "https://restapi.amap.com/v3/geocode/regeo?key=" + Config.getProperties("map.key") + "&location=";
 
-    public static List<String> ruleList = new ArrayList<>() {
+    //文件名解析时间规则列表
+    private final static List<String> ruleList = new ArrayList<>() {
         {
             add("(\\d{8})_(\\d{6})");
             add("(IMG\\d{14})");
@@ -39,9 +44,58 @@ public class Util {
         }
     };
 
-    public static String fileTargetPatten = "yyyy" + File.separatorChar + "MM" + File.separatorChar
-            + "dd" + File.separatorChar + "HH" + File.separatorChar + "mm" + File.separatorChar + "ss" + File.separatorChar;
+    private final static List<DateTimeFormatter> DATE_TIME_FORMATTER_LIST = new ArrayList<>() {
+        {
+            add(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            add(DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss.SSS zzz"));
+            add(DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss"));
+        }
+    };
 
+    //文件目的路径地址规则
+    public static String fileTargetPatten = "yyyy" + File.separatorChar + "MM" + File.separatorChar
+            + "dd" + File.separatorChar + "HHmmss";
+
+    public static LocalDateTime getDateTimeFromString(String timeStr) {
+        if (timeStr == null || timeStr.isBlank()) {
+            return null;
+        }
+        LocalDateTime temp;
+        if (timeStr.contains("UTC")) {
+            try {
+                ZonedDateTime zonedDateTime = ZonedDateTime.parse(timeStr, DATE_TIME_FORMATTER_LIST.get(1));
+                return zonedDateTime.withZoneSameInstant(ZoneId.of("Asia/Shanghai")).toLocalDateTime();
+            } catch (DateTimeParseException ex) {
+                return null;
+            }
+        }
+        for (DateTimeFormatter formatter : DATE_TIME_FORMATTER_LIST) {
+            temp = strToTime(timeStr, formatter);
+            if (temp != null) {
+                return temp;
+            }
+        }
+        return null;
+    }
+
+
+    private static LocalDateTime strToTime(String str, DateTimeFormatter dateFormatter) {
+        if (str == null || str.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(str, dateFormatter);
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * 根据文件名解析文件时间
+     *
+     * @param fileName 文件名
+     * @return 文件时间
+     */
     public static LocalDateTime localDateTimeByName(String fileName) {
         DateTimeFormatter dateTimeFormatter;
         Pattern pattern;
@@ -75,6 +129,12 @@ public class Util {
         return null;
     }
 
+    /**
+     * 根据时间列表获取最早时间(gps时间可能不是24小时制  需要酌情抛弃)
+     *
+     * @param localDateTimes 时间列表
+     * @return 最早时间
+     */
     public static String getEarliestTime(List<LocalDateTime> localDateTimes) {
         LocalDateTime earliestTime = null;
         for (LocalDateTime localDateTime : localDateTimes) {
@@ -91,13 +151,26 @@ public class Util {
         if (earliestTime == null) {
             return null;
         }
-        return earliestTime.format(DateTimeFormatter.ofPattern(fileTargetPatten));
+        return targetPath + earliestTime.format(DateTimeFormatter.ofPattern(fileTargetPatten));
     }
 
+    /**
+     * 根据文件获取MD5
+     *
+     * @param file 文件对象
+     * @return md5 md5
+     * @throws IOException IO异常
+     */
     public static String Md5ByFile(File file) throws IOException {
         return DigestUtils.md5Hex(new FileInputStream(file));
     }
 
+    /**
+     * 根据fileInfo获取时间列表
+     *
+     * @param file 文件信息对象
+     * @return 时间列表
+     */
     public static List<LocalDateTime> getDateTimeListByFile(FileInfo file) {
         List<LocalDateTime> localDateTimes = new ArrayList<>();
         if (file.getCreateTime() != null) {
@@ -126,6 +199,12 @@ public class Util {
         return localDateTimes;
     }
 
+    /**
+     * 经纬度  度分秒转换成度
+     *
+     * @param jwd 度分秒
+     * @return 度
+     */
     public static String dmt2D(String jwd) {
         if (jwd != null && !jwd.isBlank() && (jwd.contains("°"))) {//如果不为空并且存在度单位
             //计算前进行数据处理
@@ -158,33 +237,51 @@ public class Util {
         return null;
     }
 
+    /**
+     * 经纬度调取高德API获取地址  并使用缓存
+     *
+     * @param gps 经纬度
+     * @return 地址
+     */
     public static String gps2Address(String gps) {
-        if (mapKey.containsKey(gps)) {
-            return mapKey.get(gps);
-        }
-        // 创建httpClient实例对象
-        HttpClient httpClient = new HttpClient();
-        // 设置httpClient连接主机服务器超时时间：15000毫秒
-        httpClient.getHttpConnectionManager().getParams().setConnectionTimeout(15000);
-        // 创建GET请求方法实例对象
-        GetMethod getMethod = new GetMethod(BASE_URL + gps);
-        // 设置post请求超时时间
-        getMethod.getParams().setParameter(HttpMethodParams.SO_TIMEOUT, 60000);
-        getMethod.addRequestHeader("Content-Type", "application/json;charset=UTF-8");
+        Jedis jedis = null;
+        GetMethod getMethod = null;
         try {
+            jedis = RedisUtil.getJedis();
+            String address;
+            if (jedis != null && (address = jedis.get(gps)) != null) {
+                return address;
+            }
+            // 创建httpClient实例对象
+            HttpClient httpClient = new HttpClient();
+            // 设置httpClient连接主机服务器超时时间：15000毫秒
+            httpClient.getHttpConnectionManager().getParams().setConnectionTimeout(15000);
+            // 创建GET请求方法实例对象
+            getMethod = new GetMethod(BASE_URL + gps);
+            // 设置post请求超时时间
+            getMethod.getParams().setParameter(HttpMethodParams.SO_TIMEOUT, 60000);
+            getMethod.addRequestHeader("Content-Type", "application/json;charset=UTF-8");
+
             httpClient.executeMethod(getMethod);
             JSONObject jsonObject = JSON.parseObject(getMethod.getResponseBodyAsString());
             if ("1".equals(jsonObject.get("status"))) {
                 JSONObject resultObject = jsonObject.getJSONObject("regeocode");
-                String address = resultObject.getString("formatted_address");
-                mapKey.putIfAbsent(gps, address);
+                address = resultObject.getString("formatted_address");
+                if (jedis != null) {
+                    jedis.set(gps, address);
+                }
                 return address;
             }
         } catch (Exception e) {
             // TODO 记录错误信息等待后续处理
             throw new RuntimeException(e);
         } finally {
-            getMethod.releaseConnection();
+            if (jedis != null) {
+                RedisUtil.returnResource(jedis);
+            }
+            if (getMethod != null) {
+                getMethod.releaseConnection();
+            }
         }
         return null;
     }
